@@ -1,8 +1,7 @@
 '''
 Done by:
 Vinay HN - n10180893
-Rahul Rajendran - n10145281
-Karthikeyan Jayavel - n10124004
+
 '''
 import tensorflow
 from tensorflow import keras as keras
