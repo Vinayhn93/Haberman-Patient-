@@ -1,2 +1,2 @@
-# Haberman-Patient-
-Data Analysis
+# Convolutional Neural Network
+CNN
