@@ -1,2 +1,1 @@
-# Convolutional Neural Network
-CNN
+Single Cell RNA sequence
