@@ -1,0 +1,619 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+install.packages("Matrix.utils")
+install.packages("SingleCellExperiment")
+install.packages("Seurat")
+install.packages("tidyverse")
+install.packages("Matrix")
+install.packages("AnnotationHub")
+install.packages("ensembldb")
+install.packages("scales")
+install.packages("cowplot")
+install.packages("RCurl")
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("SingleCellExperiment")
+BiocManager::install("AnnotationHub")
+BiocManager::install("ensembldb")
+library(Matrix.utils)
+library(SingleCellExperiment)
+library(Seurat)
+library(tidyverse)
+library(Matrix)
+library(AnnotationHub)
+library(ensembldb)
+library(scales)
+library(cowplot)
+library(RCurl)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+#library(Matrix.utils)
+library(Seurat)
+library(tidyverse)
+#library(Matrix)
+library(RCurl)
+library(scales)
+library(cowplot)
+library(reticulate)
+library(SingleCellExperiment)
+library(AnnotationHub)
+library(ensembldb)
+```
+```{r}
+# How to read in 10X data for a single sample
+ctrl_counts <- Read10X(data.dir = "H:\\BioInformatics\\Final\\ctrl_raw_feature_bc_matrix")
+
+# Turn count matrix into a Seurat object
+ctrl <- CreateSeuratObject(counts = ctrl_counts,
+                           min.features = 100)
+```
+
+```{r}
+head(ctrl@meta.data)
+```
+
+```{r}
+for (file in c("ctrl_raw_feature_bc_matrix", "stim_raw_feature_bc_matrix")){
+        seurat_data <- Read10X(data.dir = paste0("H:\\BioInformatics\\Final\\", file))
+        seurat_obj <- CreateSeuratObject(counts = seurat_data, 
+                                         min.features = 100, 
+                                         project = file)
+        assign(file, seurat_obj)
+}
+```
+
+```{r}
+# Check the metadata in the new Seurat objects
+head(ctrl_raw_feature_bc_matrix@meta.data)
+head(stim_raw_feature_bc_matrix@meta.data)
+```
+
+```{r}
+# Create a merged Seurat object
+merged_seurat <- merge(x = ctrl_raw_feature_bc_matrix, 
+                       y = stim_raw_feature_bc_matrix, 
+                       add.cell.id = c("ctrl", "stim"))
+```
+
+```{r}
+# Check that the merged object has the appropriate sample-specific prefixes
+head(merged_seurat@meta.data)
+tail(merged_seurat@meta.data)
+```
+
+```{r}
+# Add number of genes per UMI for each cell to metadata
+merged_seurat$log10GenesPerUMI <- log10(merged_seurat$nFeature_RNA) / log10(merged_seurat$nCount_RNA)
+```
+
+```{r}
+# Compute percent mito ratio
+merged_seurat$mitoRatio <- PercentageFeatureSet(object = merged_seurat, pattern = "^MT-")
+merged_seurat$mitoRatio <- merged_seurat@meta.data$mitoRatio / 100
+```
+
+```{r}
+# Create metadata dataframe
+metadata <- merged_seurat@meta.data
+```
+
+```{r}
+# Add cell IDs to metadata
+metadata$cells <- rownames(metadata)
+
+# Rename columns
+metadata <- metadata %>%
+        dplyr::rename(seq_folder = orig.ident,
+                      nUMI = nCount_RNA,
+                      nGene = nFeature_RNA)
+```
+
+```{r}
+# Create sample column
+metadata$sample <- NA
+metadata$sample[which(str_detect(metadata$cells, "^ctrl_"))] <- "ctrl"
+metadata$sample[which(str_detect(metadata$cells, "^stim_"))] <- "stim"
+```
+
+```{r}
+# Add metadata back to Seurat object
+merged_seurat@meta.data <- metadata
+                           
+# Create .RData object to load at any time
+save(merged_seurat, file="H:\\BioInformatics\\Final\\raw_seurat.RData")
+```
+
+```{r}
+# Visualize the number of cell counts per cell
+metadata %>% 
+  	ggplot(aes(x=sample, fill=sample)) + 
+  	geom_bar() +
+  	theme_bw() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("Number of Cells")
+```
+
+```{r}
+# Visualize the number UMIs/transcripts per cell
+metadata %>% 
+  	ggplot(aes(color=sample, x=nUMI, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_bw() +
+  	ylab("Cell Density") +
+  	geom_vline(xintercept = 500)
+```
+
+```{r}
+# Visualize the distribution of genes detected per cell via histogram
+metadata %>% 
+  	ggplot(aes(color=sample, x=nGene, fill= sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	theme_classic() +
+  	scale_x_log10() + 
+  	geom_vline(xintercept = 300)
+
+# Visualize the distribution of genes detected per cell via boxplot
+metadata %>% 
+  	ggplot(aes(x=sample, y=log10(nGene), fill=sample)) + 
+  	geom_boxplot() + 
+  	theme_bw() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells vs NGenes")
+```
+
+```{r}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+metadata %>% 
+  	ggplot(aes(x=nUMI, y=nGene, color=mitoRatio)) + 
+  	geom_point() + 
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_bw() +
+  	geom_vline(xintercept = 500) +
+  	geom_hline(yintercept = 250) +
+  	facet_wrap(~sample)
+```
+
+```{r}
+# Filter out low quality reads using selected thresholds - these will change with experiment
+filtered_seurat <- subset(x = merged_seurat, 
+                         subset= (nUMI >= 500) & 
+                           (nGene >= 250) & 
+                           (log10GenesPerUMI > 0.80) & 
+                           (mitoRatio < 0.20))
+			                          
+```
+
+```{r}
+# Output a logical vector for every gene on whether the more than zero counts per cell
+# Extract counts
+counts <- GetAssayData(object = filtered_seurat, slot = "counts")
+
+# Output a logical vector for every gene on whether the more than zero counts per cell
+nonzero <- counts > 0L
+
+# Sums all TRUE values and returns TRUE if more than 10 TRUE values per gene
+keep_genes <- rowSums(as.matrix(nonzero)) >= 10
+
+# Only keeping those genes expressed in more than 10 cells
+filtered_counts <- counts[keep_genes, ]
+
+# Create a new Seurat object
+clean_seurat <- CreateSeuratObject(filtered_counts, meta.data = filtered_seurat@meta.data)
+```
+
+```{r}
+# Save filtered subset to new metadata
+metadata_clean <- clean_seurat@meta.data
+```
+
+```{r}
+# Create new object - we don't want to accidentally delete 
+seurat_raw <- clean_seurat
+```
+
+```{r}
+# Get cell IDs for control cells
+control_cell_ids <- rownames(seurat_raw@meta.data[which(seurat_raw@meta.data$sample == "ctrl"), ])
+
+head(control_cell_ids)
+
+# Subset Seurat object to only contain control cells
+seurat_control <- subset(seurat_raw, 
+                         cells = control_cell_ids)
+```
+
+```{r}
+# Normalize the data for read depth
+seurat_control <- NormalizeData(seurat_control,
+                                normalization.method = "LogNormalize",
+                                scale.factor = 10000)
+```
+
+```{r}
+# Identify the 2000 most variable genes
+seurat_control <- FindVariableFeatures(object = seurat_control,
+                                       selection.method = "vst",
+                                       nfeatures = 2000)
+```
+
+```{r}
+# Identify the 20 most highly variable genes
+top20 <- head(x = VariableFeatures(object = seurat_control), 
+              n =20)
+
+# Plot variable features with labels
+plot1 <- VariableFeaturePlot(object = seurat_control)
+
+LabelPoints(plot = plot1, 
+            points = top20, 
+            repel = TRUE)
+```
+
+```{r}
+# Scale data
+all_genes <- rownames(x = seurat_control)
+
+seurat_control <- ScaleData(object = seurat_control,
+                            features = all_genes)
+```
+```{r}
+# Download cell cycle genes for organism at https://github.com/hbc/tinyatlas/tree/master/cell_cycle. Read it in with:
+
+cc_file <- getURL("https://raw.githubusercontent.com/hbc/tinyatlas/master/cell_cycle/Homo_sapiens.csv") 
+cell_cycle_genes <- read.csv(text = cc_file)
+```
+
+```{r}
+# Connect to AnnotationHub
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, 
+              pattern = c("Homo sapiens", "EnsDb"), 
+              ignore.case = TRUE)
+
+# Acquire the latest annotation files
+id <- ahDb %>%
+        mcols() %>%
+        rownames() %>%
+        tail(n = 1)
+
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+
+# Extract gene-level information from database
+annotations <- genes(edb, 
+                     return.type = "data.frame")
+
+# Select annotations of interest
+annotations <- annotations %>%
+        dplyr::select(gene_id, gene_name, seq_name, gene_biotype, description)
+```
+
+```{r}
+# Get gene names for Ensembl IDs for each gene
+cell_cycle_markers <- dplyr::left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
+
+# Acquire the S phase genes
+s_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "S") %>%
+        pull("gene_name")
+        
+# Acquire the G2M phase genes        
+g2m_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "G2/M") %>%
+        pull("gene_name")
+```
+```{r}
+# Perform cell cycle scoring
+seurat_control <- CellCycleScoring(seurat_control,
+                                   g2m.features = g2m_genes,
+                                   s.features = s_genes)
+
+# Perform PCA and color by cell cycle phase
+seurat_control <- RunPCA(seurat_control)
+
+# Visualize the PCA, grouping by cell cycle phase
+DimPlot(seurat_control,
+        reduction = "pca",
+        group.by= "Phase")
+```
+
+```{r}
+# Define variables in metadata to regress
+vars_to_regress <- c("nUMI", "S.Score", "G2M.Score", "mitoRatio")
+
+# Regress out the uninteresting sources of variation in the data
+seurat_control <- ScaleData(object = seurat_control,
+                            vars.to.regress = vars_to_regress, 
+                            verbose = FALSE)
+
+# Re-run the PCA
+seurat_control <- RunPCA(object = seurat_control)
+
+DimPlot(object = seurat_control, 
+        reduction = "pca",
+        group.by = "Phase")
+```
+Clustering cells based on top PCs
+```{r}
+# Explore heatmap of PCs
+DimHeatmap(seurat_control, 
+           dims = 1:6, 
+           cells = 500, 
+           balanced = TRUE)
+```
+```{r}
+# Printing out the most variable genes driving PCs
+print(x = seurat_control[["pca"]], 
+      dims = 1:10, 
+      nfeatures = 5)
+```
+
+```{r}
+# Plot the elbow plot
+ElbowPlot(object = seurat_control, 
+          ndims = 20)
+```
+
+```{r}
+# Determine percent of variation associated with each PC
+pct <- seurat_control[["pca"]]@stdev / sum(seurat_control[["pca"]]@stdev) * 100
+
+# Calculate cumulative percents for each PC
+cumu <- cumsum(pct)
+
+# Determine which PC exhibits cumulative percent greater than 90% and % variation associated with the PC as less than 5
+co1 <- which(cumu > 90 & pct < 5)[1]
+
+co1
+```
+
+```{r}
+# Determine the difference between variation of PC and subsequent PC
+co2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = T)[1] + 1
+
+# last point where change of % of variation is more than 0.1%.
+
+co2
+```
+
+```{r}
+# Minimum of the two calculation
+pcs <- min(co1, co2)
+
+pcs
+```
+
+```{r}
+# Create a dataframe with values
+plot_df <- data.frame(pct = pct, 
+           cumu = cumu, 
+           rank = 1:length(pct))
+
+# Elbow plot to visualize 
+  ggplot(plot_df, aes(cumu, pct, label = rank, color = rank > pcs)) + 
+  geom_text() + 
+  geom_vline(xintercept = 90, color = "grey") + 
+  geom_hline(yintercept = min(pct[pct > 5]), color = "grey") +
+  theme_bw()
+ 
+```
+
+```{r}
+# Printing out the most variable genes driving PCs
+print(x = seurat_control[["pca"]], 
+      dims = 1:20, 
+      nfeatures = 5)
+```
+Cluster the cells
+```{r}
+# Determine the K-nearest neighbor graph
+seurat_control <- FindNeighbors(object = seurat_control, 
+                                dims = 1:14)
+                                
+# Determine the clusters for various resolutions                                
+seurat_control <- FindClusters(object = seurat_control,
+                               resolution = c(0.4, 0.6, 0.8, 1.0, 1.2, 1.8))
+```
+
+```{r}
+# Explore resolutions
+seurat_control@meta.data %>% 
+        View()
+```
+
+```{r}
+# Assign identity of clusters
+Idents(object = seurat_control) <- "RNA_snn_res.0.8"
+```
+
+t_SNE:
+
+```{r}
+# Calculation of t-SNE
+seurat_control <- RunTSNE(object = seurat_control)
+
+# Plotting t-SNE
+DimPlot(object = seurat_control,
+        label = TRUE,
+        reduction = "tsne",
+        plot.title = "t-SNE")
+```
+
+#UMAp
+```{r}
+# Calculation of UMAP
+seurat_control <- RunUMAP(seurat_control, 
+                  reduction = "pca", 
+                  dims = 1:14)
+
+# Plot the UMAP
+DimPlot(seurat_control,
+        reduction = "umap",
+        label = TRUE,
+        label.size = 6,
+        plot.title = "UMAP")
+      
+```
+
+```{r}
+# Assign identity of clusters
+Idents(object = seurat_control) <- "RNA_snn_res.0.8"
+
+# Plot the UMAP
+DimPlot(seurat_control,
+        reduction = "umap",
+        label = TRUE,
+        label.size = 6,
+        plot.title = "UMAP")
+```
+
+```{r}
+# Extract identity and sample information from seurat object to determine the number of cells per cluster per sample
+n_cells <- FetchData(seurat_control, 
+                     vars = c("ident")) %>% 
+        dplyr::count(ident) %>% 
+        spread(ident, n)
+
+# View table
+View(n_cells)
+```
+```{r}
+# Establishing groups to color plots by
+group_by <- c("Phase")
+
+# Getting coordinates for cells to use for UMAP and associated grouping variable information
+class_umap_data <- FetchData(seurat_control, 
+                             vars = c("ident", "UMAP_1", "UMAP_2", group_by))
+
+# Adding cluster label to center of cluster on UMAP
+umap_label <- FetchData(seurat_control, 
+                        vars = c("ident", "UMAP_1", "UMAP_2"))  %>%
+        group_by(ident) %>%
+        summarise(x=mean(UMAP_1), y=mean(UMAP_2))
+```
+
+```{r}
+# Extract the UMAP coordinates for the first 10 cells
+seurat_control@reductions$umap@cell.embeddings[1:10, 1:2]
+```
+
+```{r}
+# Getting coordinates for cells to use for PCA and associated grouping variable information
+class_pca_data <- FetchData(seurat_control, 
+                            vars = c("ident", "PC_1", "PC_2", group_by))
+
+# Adding cluster label to center of cluster on PCA
+pca_label <- FetchData(seurat_control, 
+                       vars = c("ident", "PC_1", "PC_2"))  %>%
+        mutate(ident = seurat_control@active.ident) %>%
+        group_by(ident) %>%
+        summarise(x=mean(PC_1), y=mean(PC_2))
+```
+
+```{r}
+# load cowplot library to enable visualizing 2 plots side-by-side
+library(cowplot)
+
+# Function to plot UMAP and PCA as grids
+plot_grid(
+      ggplot(class_umap_data, aes(UMAP_1, UMAP_2)) +
+        geom_point(aes_string(color = group_by), alpha = 0.7) +
+        scale_color_brewer(palette = "Set2")  +
+        geom_text(data=umap_label, aes(label=ident, x, y)),
+      ggplot(class_pca_data, aes(PC_1, PC_2)) +
+        geom_point(aes_string(color = group_by), alpha = 0.7) +
+        scale_color_brewer(palette = "Set2")  +
+        geom_text(data=pca_label, 
+                  aes(label=ident, x, y)),
+      nrow = 1, 
+      align = "v")
+```
+
+```{r}
+# Determine metrics to plot present in seurat_control@meta.data
+metrics <-  c("nUMI", "nGene", "S.Score", "G2M.Score", "mitoRatio")
+
+# Extract the UMAP coordinates for each cell and include information about the metrics to plot
+qc_data <- FetchData(seurat_control, 
+                     vars = c(metrics, "ident", "UMAP_1", "UMAP_2"))
+
+# Plot a UMAP plot for each metric
+map(metrics, function(qc){
+        ggplot(qc_data,
+               aes(UMAP_1, UMAP_2)) +
+                geom_point(aes_string(color=qc), 
+                           alpha = 0.7) +
+                scale_color_gradient(guide = FALSE, 
+                                     low = "grey90", 
+                                     high = "blue")  +
+                geom_text(data=umap_label, 
+                          aes(label=ident, x, y)) +
+                ggtitle(qc)
+}) %>%
+        plot_grid(plotlist = .)
+```
+
+```{r}
+# Defining the information in the seurat object of interest
+columns <- c(paste0("PC_", 1:14),
+            "ident",
+            "UMAP_1", "UMAP_2")
+
+# Extracting this data from the seurat object
+pc_data <- FetchData(seurat_control, 
+                     vars = columns)
+
+# Plotting a UMAP plot for each of the PCs
+map(paste0("PC_", 1:14), function(pc){
+        ggplot(pc_data, 
+               aes(UMAP_1, UMAP_2)) +
+                geom_point(aes_string(color=pc), 
+                           alpha = 0.7) +
+                scale_color_gradient(guide = FALSE, 
+                                     low = "grey90", 
+                                     high = "blue")  +
+                geom_text(data=umap_label, 
+                          aes(label=ident, x, y)) +
+                ggtitle(pc)
+}) %>% 
+        plot_grid(plotlist = .)
+```
+
+```{r}
+# Examine PCA results 
+print(seurat_control[["pca"]], dims = 1:5, nfeatures = 5)
+```
+
+```{r}
+DimPlot(object = seurat_control, 
+        reduction = "umap", 
+        label = TRUE)
+```
+
+```{r}
+
+```
+
