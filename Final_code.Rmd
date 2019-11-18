@@ -56,11 +56,11 @@ library(AnnotationHub)
 library(ensembldb)
 ```
 ```{r}
-# How to read in 10X data for a single sample
-ctrl_counts <- Read10X(data.dir = "H:\\BioInformatics\\Final\\ctrl_raw_feature_bc_matrix")
+# Read PBMC dataset
+ctrlcounts <- Read10X(data.dir = "H:\\BioInformatics\\Final\\ctrl_raw_feature_bc_matrix")
 
 # Turn count matrix into a Seurat object
-ctrl <- CreateSeuratObject(counts = ctrl_counts,
+ctrl <- CreateSeuratObject(counts = ctrlcounts,
                            min.features = 100)
 ```
 
@@ -79,53 +79,53 @@ for (file in c("ctrl_raw_feature_bc_matrix", "stim_raw_feature_bc_matrix")){
 ```
 
 ```{r}
-# Check the metadata in the new Seurat objects
+# new Seurat objects
 head(ctrl_raw_feature_bc_matrix@meta.data)
 head(stim_raw_feature_bc_matrix@meta.data)
 ```
 
 ```{r}
-# Create a merged Seurat object
-merged_seurat <- merge(x = ctrl_raw_feature_bc_matrix, 
+# Creating a merged Seurat objects
+mergedSeurat <- merge(x = ctrl_raw_feature_bc_matrix, 
                        y = stim_raw_feature_bc_matrix, 
                        add.cell.id = c("ctrl", "stim"))
 ```
 
 ```{r}
 # Check that the merged object has the appropriate sample-specific prefixes
-head(merged_seurat@meta.data)
-tail(merged_seurat@meta.data)
+head(mergedSeurat@meta.data)
+tail(mergedSeurat@meta.data)
 ```
 
 ```{r}
 # Add number of genes per UMI for each cell to metadata
-merged_seurat$log10GenesPerUMI <- log10(merged_seurat$nFeature_RNA) / log10(merged_seurat$nCount_RNA)
+mergedSeurat$log10GenesPerUMI <- log10(mergedSeurat$nFeature_RNA) / log10(mergedSeurat$nCount_RNA)
 ```
 
 ```{r}
-# Compute percent mito ratio
-merged_seurat$mitoRatio <- PercentageFeatureSet(object = merged_seurat, pattern = "^MT-")
-merged_seurat$mitoRatio <- merged_seurat@meta.data$mitoRatio / 100
+# Computing a percentage of mitochondria ratio
+mergedSeurat$mitoRatio <- PercentageFeatureSet(object = mergedSeurat, pattern = "^MT-")
+mergedSeurat$mitoRatio <- mergedSeurat@meta.data$mitoRatio / 100
 ```
 
 ```{r}
-# Create metadata dataframe
-metadata <- merged_seurat@meta.data
+# Creating metadata dataframe
+metaData <- mergedSeurat@meta.data
 ```
 
 ```{r}
 # Add cell IDs to metadata
-metadata$cells <- rownames(metadata)
+metadata$cells <- rownames(metaData)
 
-# Rename columns
-metadata <- metadata %>%
+# Rename columns name
+metadata <- metaData %>%
         dplyr::rename(seq_folder = orig.ident,
                       nUMI = nCount_RNA,
                       nGene = nFeature_RNA)
 ```
 
 ```{r}
-# Create sample column
+# Creating sa ample column
 metadata$sample <- NA
 metadata$sample[which(str_detect(metadata$cells, "^ctrl_"))] <- "ctrl"
 metadata$sample[which(str_detect(metadata$cells, "^stim_"))] <- "stim"
@@ -140,7 +140,7 @@ save(merged_seurat, file="H:\\BioInformatics\\Final\\raw_seurat.RData")
 ```
 
 ```{r}
-# Visualize the number of cell counts per cell
+# Visualize the Number of Cell Counts
 metadata %>% 
   	ggplot(aes(x=sample, fill=sample)) + 
   	geom_bar() +
@@ -162,7 +162,7 @@ metadata %>%
 ```
 
 ```{r}
-# Visualize the distribution of genes detected per cell via histogram
+# Visualize the distribution of genes by using Histogram
 metadata %>% 
   	ggplot(aes(color=sample, x=nGene, fill= sample)) + 
   	geom_density(alpha = 0.2) + 
@@ -170,7 +170,7 @@ metadata %>%
   	scale_x_log10() + 
   	geom_vline(xintercept = 300)
 
-# Visualize the distribution of genes detected per cell via boxplot
+# Visualize the distribution of genes detected by using Boxplot
 metadata %>% 
   	ggplot(aes(x=sample, y=log10(nGene), fill=sample)) + 
   	geom_boxplot() + 
@@ -181,7 +181,7 @@ metadata %>%
 ```
 
 ```{r}
-# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+# Visualize the correlation between genes detected and number of UMIs
 metadata %>% 
   	ggplot(aes(x=nUMI, y=nGene, color=mitoRatio)) + 
   	geom_point() + 
@@ -195,8 +195,8 @@ metadata %>%
 ```
 
 ```{r}
-# Filter out low quality reads using selected thresholds - these will change with experiment
-filtered_seurat <- subset(x = merged_seurat, 
+# Filter out low quality r
+filteredSeurat <- subset(x = mergedSeurat, 
                          subset= (nUMI >= 500) & 
                            (nGene >= 250) & 
                            (log10GenesPerUMI > 0.80) & 
@@ -537,7 +537,7 @@ pca_label <- FetchData(seurat_control,
 # load cowplot library to enable visualizing 2 plots side-by-side
 library(cowplot)
 
-# Function to plot UMAP and PCA as grids
+# Function to plot UMAP and PCA 
 plot_grid(
       ggplot(class_umap_data, aes(UMAP_1, UMAP_2)) +
         geom_point(aes_string(color = group_by), alpha = 0.7) +
@@ -586,7 +586,7 @@ columns <- c(paste0("PC_", 1:14),
 pc_data <- FetchData(seurat_control, 
                      vars = columns)
 
-# Plotting a UMAP plot for each of the PCs
+# UMAP plotting
 map(paste0("PC_", 1:14), function(pc){
         ggplot(pc_data, 
                aes(UMAP_1, UMAP_2)) +
@@ -603,7 +603,7 @@ map(paste0("PC_", 1:14), function(pc){
 ```
 
 ```{r}
-# Examine PCA results 
+# PCA dimentionality Reduction
 print(seurat_control[["pca"]], dims = 1:5, nfeatures = 5)
 ```
 
